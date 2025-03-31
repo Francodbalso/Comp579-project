@@ -10,4 +10,4 @@
 
 module load miniconda/miniconda-winter2025
 
-python ../test.py
+python ../waypoints_baseline.py
