@@ -13,7 +13,7 @@ model = PPO("MlpPolicy", env, verbose=0)
 n_timesteps = int(5e5)
 
 eval_callback = EvalCallback(test_env,
-                             log_path='../data/',
+                             log_path='../data/hover_basline/',
                              eval_freq=5000,
                              n_eval_episodes=2)
 
