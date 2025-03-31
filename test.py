@@ -10,11 +10,11 @@ env = gym.make('PyFlyt/QuadX-Hover-v4')
 test_env = gym.make('PyFlyt/QuadX-Hover-v4')
 
 model = PPO("MlpPolicy", env, verbose=0)
-n_timesteps = 60000
+n_timesteps = int(5e5)
 
 eval_callback = EvalCallback(test_env,
                              log_path='../data/',
-                             eval_freq=2000,
+                             eval_freq=5000,
                              n_eval_episodes=2)
 
 t = time.time()
