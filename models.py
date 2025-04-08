@@ -50,14 +50,41 @@ class IntraOptionPolicy():
     The network outputs means and log standard deviations for each action
     in the form of a 1D array (means, log_stds).
     '''
-    def __init__(self, state_dim, h_dim, action_dim):
+    def __init__(self, state_dim, h_dim, action_dim, action_space):
         self.action_dim = action_dim
+        # store action bounds
+        self.upper_a_bounds = torch.from_numpy(action_space.high).to(torch.float32)
+        self.lower_a_bounds = torch.from_numpy(action_space.low).to(torch.float32)
+        
+        # make an mlp with last layer's weights extra small initially to help tanh gradients
         self.mlp = MLP(state_dim, h_dim, 2 * action_dim)
+        self.mlp.layers[-1].weight.data *= 0.01
+        self.mlp.layers[-1].bias.data *= 0.01
     
     def get_means_logstds(self, s):
-        # expecting s to be of shape (batch, state_dim)
+        # expecting s to be of shape (state_dim)
         # first half of outputs will be the means, other half will be logstds
         outputs = self.mlp(s)
-        means = outputs[:, :self.action_dim]
-        logstds = outputs[:, self.action_dim:]
+        means = outputs[:self.action_dim]
+        # bound the log stds, using tanh, to avoid numerical instabilities later on
+        lowerbound, upperbound = -10, 2
+        logstds = outputs[self.action_dim:]
+        logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1)
         return means, logstds
+
+    def get_action_logprob(self, s):
+        # expecting s to be of shape (state_dim)
+        means, logstds = self.get_means_logstds(s)
+        normal = torch.distributions.Normal(means, torch.exp(logstds))
+        raw_action = normal.rsample()  # uses the reparametrization trick to allow differentiability
+        squashed_action = torch.tanh(raw_action)
+        scale = 0.5 * (self.upper_a_bounds-self.lower_a_bounds)
+        bias = scale + self.lower_a_bounds
+        scaled_action = scale * squashed_action + bias
+
+        # now need to compute log probs of scaled actions taking into account the tanh + affine transformation
+        raw_logprob = normal.log_prob(raw_action).sum(dim=1)
+        log_det_jacobian = torch.log(scale * (1 - squashed_action ** 2) + 1e-6).sum(dim=1)
+        log_prob = raw_logprob - log_det_jacobian
+
+        return scaled_action, log_prob
