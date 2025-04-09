@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import gymnasium as gym
+import numpy as np
 
 class MLP(nn.Module):
     '''basic ReLU activated 2 layer mlp with no output activation'''
@@ -15,18 +17,18 @@ class MLP(nn.Module):
         return self.layers(x)
     
 
-class Qu():
+class Qw():
     '''
-    The option value model Q_U(s, w, a) from the paper, except every instance
+    The option value model Q_U(s, w) from the paper, except every instance
     of this class will correspond to a specific option w.
-    in_dim should be state_dim + action_dim
+    in_dim should be state_dim
     '''
-    def __init__(self, s_a_dim, h_dim):
-        self.mlp = MLP(s_a_dim, h_dim, 1)
+    def __init__(self, s_dim, h_dim):
+        self.mlp = MLP(s_dim, h_dim, 1)
     
-    def get_value(self, s_a):
-        # assume already normalized and concatenated state and action
-        return self.mlp(s_a)
+    def get_value(self, s):
+        # assume already normalized state
+        return self.mlp(s)
     
 
 class TerminationFunction():
@@ -58,8 +60,8 @@ class IntraOptionPolicy():
         
         # make an mlp with last layer's weights extra small initially to help tanh gradients
         self.mlp = MLP(state_dim, h_dim, 2 * action_dim)
-        self.mlp.layers[-1].weight.data *= 0.01
-        self.mlp.layers[-1].bias.data *= 0.01
+        self.mlp.layers[-1].weight.data *= 0.1
+        self.mlp.layers[-1].bias.data *= 0.1
     
     def get_means_logstds(self, s):
         # expecting s to be of shape (state_dim)
@@ -72,7 +74,7 @@ class IntraOptionPolicy():
         logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1)
         return means, logstds
 
-    def get_action_logprob(self, s):
+    def get_action_logprob_entropy(self, s):
         # expecting s to be of shape (state_dim)
         means, logstds = self.get_means_logstds(s)
         normal = torch.distributions.Normal(means, torch.exp(logstds))
@@ -83,8 +85,54 @@ class IntraOptionPolicy():
         scaled_action = scale * squashed_action + bias
 
         # now need to compute log probs of scaled actions taking into account the tanh + affine transformation
-        raw_logprob = normal.log_prob(raw_action).sum(dim=1)
-        log_det_jacobian = torch.log(scale * (1 - squashed_action ** 2) + 1e-6).sum(dim=1)
+        raw_logprob = normal.log_prob(raw_action).sum()
+        log_det_jacobian = torch.log(scale * (1 - squashed_action ** 2) + 1e-6).sum()
         log_prob = raw_logprob - log_det_jacobian
 
-        return scaled_action, log_prob
+        # get the differentiable entropy
+        entropy = normal.entropy().sum() 
+
+        return scaled_action.detach(), log_prob, entropy
+
+
+class OptionManager():
+    '''
+    Provides all the necessary functions involving values:
+        - Computes epsilon greedy policy over options
+        - Computes value over options V(s) and option value upon arrival Qu(a, s, w) 
+    '''
+    def __init__(self, Qw_list, term_list):
+        self.n_options = len(Qw_list)
+        self.option_value_funcs = Qw_list
+        self.termination_funcs = term_list
+    
+    def sample_option(self, s, epsilon):
+        '''
+        Uses epsilon greedy method to choose an option. Returns the index of the sampled option.
+        '''
+        o_vals = torch.tensor([func.get_value(s).squeeze().detach() for func in self.option_value_funcs])
+        max_ind = torch.argmax(o_vals).item()
+        if torch.rand(1).item() < 1 - epsilon:
+            # be greedy
+            return max_ind
+        else:
+            # uniformly explore
+            return np.random.choice(list(range(self.n_options)))
+
+    def get_V_Qu(self, r, s, option, epsilon, gamma):
+        '''
+        Simultaneously compute the value over all options V(s) and the option value upon arrival Qu.
+        Input 'option' is the index of the current option (only relevant to the computation of Qu)
+        '''
+        o_vals = torch.tensor([func.get_value(s).squeeze().detach() for func in self.option_value_funcs])
+        # compute Qu
+        max_val = o_vals.max()
+        term_prob = self.termination_funcs[option].get_term_prob(s).detach()
+        Qu = r + gamma*((1-term_prob)*o_vals[option] + term_prob*max_val).item()
+        # compute V
+        max_ind = torch.argmax(o_vals).item()
+        probs = (epsilon/self.n_options) * torch.ones_like(o_vals)
+        probs[max_ind] += 1 - epsilon
+        V = (probs * o_vals).sum().item()
+
+        return V, Qu
