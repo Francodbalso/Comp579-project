@@ -69,9 +69,10 @@ class IntraOptionPolicy():
         outputs = self.mlp(s)
         means = outputs[:self.action_dim]
         # bound the log stds, using tanh, to avoid numerical instabilities later on
+        # can also change the slope of the tanh to avoid needing to make weights small initially
         lowerbound, upperbound = -10, 2
         logstds = outputs[self.action_dim:]
-        logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1)
+        logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1) 
         return means, logstds
 
     def get_action_logprob_entropy(self, s):
@@ -110,7 +111,8 @@ class OptionManager():
         '''
         Uses epsilon greedy method to choose an option. Returns the index of the sampled option.
         '''
-        o_vals = torch.tensor([func.get_value(s).squeeze().detach() for func in self.option_value_funcs])
+        with torch.no_grad():
+            o_vals = torch.tensor([func.get_value(s).squeeze() for func in self.option_value_funcs])
         max_ind = torch.argmax(o_vals).item()
         if torch.rand(1).item() < 1 - epsilon:
             # be greedy
@@ -124,7 +126,8 @@ class OptionManager():
         Simultaneously compute the value over all options V(s) and the option value upon arrival Qu.
         Input 'option' is the index of the current option (only relevant to the computation of Qu)
         '''
-        o_vals = torch.tensor([func.get_value(s).squeeze().detach() for func in self.option_value_funcs])
+        with torch.no_grad():
+            o_vals = torch.tensor([func.get_value(s).squeeze() for func in self.option_value_funcs])
         # compute Qu
         max_val = o_vals.max()
         term_prob = self.termination_funcs[option].get_term_prob(s).detach()
