@@ -7,7 +7,7 @@ from algorithms import OptionCritic
 
 env = gym.make('PyFlyt/QuadX-Hover-v4')
 n_options = 4
-OC = OptionCritic(n_options, env)
+OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, qlr=0.00001, tlr=0.00001, plr=0.00001)
 
 n_steps = 200000
 rewards = []

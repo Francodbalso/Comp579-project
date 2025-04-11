@@ -12,13 +12,14 @@ class OptionCritic():
         - adds small offset to advantage to discourage shrinking of options
         - uses replay buffer for the learned state option value function 
     '''
-    def __init__(self, n_options, env, epsilon=0.05, gamma=0.99, xi=0.01, h_dim=128, qlr=0.001, tlr=0.001, plr=0.001):
+    def __init__(self, n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, entropy_weight=0.01, xi=0.01, qlr=0.001, tlr=0.001, plr=0.001):
         action_dim = env.action_space.shape[0]
         obs_dim = env.observation_space.shape[0]
 
         self.epsilon = epsilon
         self.gamma = gamma
         self.xi = xi # for option shrinkage regularization
+        self.entropy_weight = entropy_weight
 
         self.qfuncs = [Qw(obs_dim, h_dim) for i in range(n_options)]
         self.qfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=qlr) for m in self.qfuncs]
@@ -48,7 +49,7 @@ class OptionCritic():
         current_qw = self.qfuncs[w_index].get_value(s).squeeze()
 
         # update intraoption policy
-        pol_loss = -logprob*(Qu - current_qw.detach()) + entropy
+        pol_loss = -logprob*(Qu - current_qw.detach()) + self.entropy_weight*entropy
         pol_loss.backward()
         self.pol_optims[w_index].step()
         self.pol_optims[w_index].zero_grad()
