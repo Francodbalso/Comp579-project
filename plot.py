@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-data = np.load('../data/waypoint_baseline/evaluations.npz')
-steps = data['timesteps']
-rewards = data['results']
-plt.plot(steps, rewards.mean(axis=1))
-plt.savefig('../plots/waypoint_baseline_reward.png')
+data = np.load('../data/hover_oc/test_run.npz')
+steps = data['end_steps']
+rewards = data['rewards']
+plt.plot(steps, rewards)
+plt.xlabel('Step')
+plt.ylabel('Reward')
+plt.title('Hover OC')
+plt.savefig('../plots/hover_oc_reward_test.png')

@@ -9,7 +9,7 @@ env = gym.make('PyFlyt/QuadX-Hover-v4')
 n_options = 4
 OC = OptionCritic(n_options, env)
 
-n_steps = 1000
+n_steps = 200000
 rewards = []
 end_steps = []
 obs, info = env.reset()
@@ -18,6 +18,7 @@ w_index = OC.sample_option(obs)
 
 tot_reward = 0
 penalty = 0 # penalty incurred for terminating options
+t0 = time.time()
 for step in range(n_steps):
     # get policy outputs
     action, logprob, entropy = OC.get_action_logprob_entropy(obs, w_index)
@@ -51,4 +52,6 @@ for step in range(n_steps):
     
     if step % (n_steps // 100) == 0 or step == n_steps - 1:
         # save results
+        elapsed_time = time.time() - t0
+        print(f'saving at step {step} after {elapsed_time / 60} minutes')
         np.savez('../data/hover_oc/test_run.npz', rewards=np.array(rewards), end_steps=np.array(end_steps))
