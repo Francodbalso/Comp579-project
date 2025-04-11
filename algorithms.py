@@ -12,12 +12,13 @@ class OptionCritic():
         - adds small offset to advantage to discourage shrinking of options
         - uses replay buffer for the learned state option value function 
     '''
-    def __init__(self, n_options, env, epsilon=0.1, gamma=0.99, h_dim=128, qlr=0.001, tlr=0.001, plr=0.001):
+    def __init__(self, n_options, env, epsilon=0.05, gamma=0.99, xi=0.01, h_dim=128, qlr=0.001, tlr=0.001, plr=0.001):
         action_dim = env.action_space.shape[0]
         obs_dim = env.observation_space.shape[0]
 
         self.epsilon = epsilon
         self.gamma = gamma
+        self.xi = xi # for option shrinkage regularization
 
         self.qfuncs = [Qw(obs_dim, h_dim) for i in range(n_options)]
         self.qfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=qlr) for m in self.qfuncs]
@@ -37,15 +38,32 @@ class OptionCritic():
         action, logprob, entropy = self.pols[w_index].get_action_logprob_entropy(s)
         return action, logprob, entropy
 
-    def update(self, r, next_s, logprob, entropy, w_index): 
-        '''assume normalized next state''' 
-        # compute value over options and value upon arrival
-        V, Qu = self.option_manager.get_V_Qu(r, next_s, w_index, self.epsilon, self.gamma)
+    def update(self, r, s, next_s, logprob, entropy, w_index): 
+        '''
+        Assume normalized next state.
+        Returns the termination probability for next_s
+        ''' 
+        # compute values
+        V, Qu, next_qw, max_q, termprob = self.option_manager.get_quantities(r, next_s, w_index, self.epsilon, self.gamma)
+        current_qw = self.qfuncs[w_index].get_value(s).squeeze()
 
         # update intraoption policy
-        pol_loss = -logprob*Qu + entropy
+        pol_loss = -logprob*(Qu - current_qw.detach()) + entropy
         pol_loss.backward()
         self.pol_optims[w_index].step()
         self.pol_optims[w_index].zero_grad()
 
         # update termination function
+        term_loss = termprob * (next_qw - V + self.xi)
+        term_loss.backward()
+        self.tfunc_optims[w_index].step()
+        self.tfunc_optims[w_index].zero_grad()
+
+        # update Q function
+        target = r + self.gamma * max_q
+        q_loss = (target - current_qw)**2
+        q_loss.backward()
+        self.qfunc_optims[w_index].step()
+        self.qfunc_optims[w_index].zero_grad()
+
+        return termprob.item()

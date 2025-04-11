@@ -121,21 +121,29 @@ class OptionManager():
             # uniformly explore
             return np.random.choice(list(range(self.n_options)))
 
-    def get_V_Qu(self, r, s, option, epsilon, gamma):
+    def get_quantities(self, r, s, option, epsilon, gamma):
         '''
-        Simultaneously compute the value over all options V(s) and the option value upon arrival Qu.
-        Input 'option' is the index of the current option (only relevant to the computation of Qu)
+        return V(s), Qu, Qw of current option, max Qw, and (differentiable) term prob in s .
+        Input 'option' is the index of the current option
         '''
         with torch.no_grad():
             o_vals = torch.tensor([func.get_value(s).squeeze() for func in self.option_value_funcs])
+        
+        # get Qw of current option
+        qw = o_vals[option]
+
+        # get termination probability in s
+        term_prob = self.termination_funcs[option].get_term_prob(s).squeeze()
+        detached_prob = term_prob.detach()
+
         # compute Qu
         max_val = o_vals.max()
-        term_prob = self.termination_funcs[option].get_term_prob(s).detach()
-        Qu = r + gamma*((1-term_prob)*o_vals[option] + term_prob*max_val).item()
+        Qu = r + gamma*((1-detached_prob)*qw + detached_prob*max_val)
+
         # compute V
         max_ind = torch.argmax(o_vals).item()
         probs = (epsilon/self.n_options) * torch.ones_like(o_vals)
         probs[max_ind] += 1 - epsilon
-        V = (probs * o_vals).sum().item()
+        V = (probs * o_vals).sum()
 
-        return V, Qu
+        return V, Qu, qw, max_val, term_prob
