@@ -37,7 +37,7 @@ for step in range(n_steps):
         penalty = 0
         if np.random.rand() < termprob:
             w_index = OC.sample_option(next_obs)
-            penalty = OC.xi  
+            penalty = OC.xi
         
         obs = next_obs
 

@@ -49,7 +49,7 @@ class OptionCritic():
         current_qw = self.qfuncs[w_index].get_value(s).squeeze()
 
         # update intraoption policy
-        pol_loss = -logprob*(Qu - current_qw.detach()) + self.entropy_weight*entropy
+        pol_loss = -logprob*(Qu - current_qw.detach()) - self.entropy_weight*entropy
         pol_loss.backward()
         self.pol_optims[w_index].step()
         self.pol_optims[w_index].zero_grad()
