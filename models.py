@@ -121,10 +121,11 @@ class OptionManager():
             # uniformly explore
             return np.random.choice(list(range(self.n_options)))
 
-    def get_quantities(self, r, s, option, epsilon, gamma):
+    def get_quantities(self, r, s, option, epsilon, gamma, is_terminal):
         '''
         return V(s), Qu, Qw of current option, max Qw, and (differentiable) term prob in s .
         Input 'option' is the index of the current option
+        Input is_terminal indicatees whether the state reaced is terminal or not
         '''
         with torch.no_grad():
             o_vals = torch.tensor([func.get_value(s).squeeze() for func in self.option_value_funcs])
@@ -138,7 +139,7 @@ class OptionManager():
 
         # compute Qu
         max_val = o_vals.max()
-        Qu = r + gamma*((1-detached_prob)*qw + detached_prob*max_val)
+        Qu = r + gamma*((1-detached_prob)*qw + detached_prob*max_val)*(1-is_terminal)
 
         # compute V
         max_ind = torch.argmax(o_vals).item()

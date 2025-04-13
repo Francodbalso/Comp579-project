@@ -7,7 +7,7 @@ from algorithms import OptionCritic
 
 env = gym.make('PyFlyt/QuadX-Hover-v4')
 n_options = 4
-OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, qlr=0.00001, tlr=0.00001, plr=0.00001)
+OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, qlr=0.0000001, tlr=0.0000001, plr=0.0000001, use_buffer=True, batch_size=64)
 
 n_steps = 200000
 rewards = []
@@ -20,6 +20,7 @@ tot_reward = 0
 penalty = 0 # penalty incurred for terminating options
 t0 = time.time()
 for step in range(n_steps):
+    #print(step)
     # get policy outputs
     action, logprob, entropy = OC.get_action_logprob_entropy(obs, w_index)
 
@@ -32,7 +33,7 @@ for step in range(n_steps):
     if not done:
         next_obs = torch.from_numpy(next_obs).to(torch.float32)
         # make updates
-        termprob = OC.update(r, obs, next_obs, logprob, entropy, w_index)
+        termprob = OC.update(r, obs, next_obs, logprob, entropy, w_index, False)
         # decide if its time to re sample an option
         penalty = 0
         if np.random.rand() < termprob:
@@ -42,6 +43,11 @@ for step in range(n_steps):
         obs = next_obs
 
     else:
+        if term:
+            next_obs = torch.from_numpy(next_obs).to(torch.float32) 
+            # make updates
+            termprob = OC.update(r, obs, next_obs, logprob, entropy, w_index, True)
+        
         rewards.append(tot_reward)
         end_steps.append(step)
         tot_reward = 0
