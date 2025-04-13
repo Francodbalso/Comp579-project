@@ -30,11 +30,11 @@ class OptionCritic():
         self.entropy_weight = entropy_weight
 
         self.qfuncs = [Qw(obs_dim, h_dim) for i in range(n_options)]
-        self.qfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=qlr) for m in self.qfuncs]
+        self.qfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=qlr, weight_decay=0.01) for m in self.qfuncs]
         self.tfuncs = [TerminationFunction(obs_dim, h_dim) for i in range(n_options)]
-        self.tfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=tlr) for m in self.tfuncs]
+        self.tfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=tlr, weight_decay=0.01) for m in self.tfuncs]
         self.pols = [IntraOptionPolicy(obs_dim, h_dim, action_dim, env.action_space) for i in range(n_options)]
-        self.pol_optims = [torch.optim.SGD(m.mlp.parameters(), lr=plr) for m in self.pols]
+        self.pol_optims = [torch.optim.SGD(m.mlp.parameters(), lr=plr, weight_decay=0.01) for m in self.pols]
 
         self.option_manager = OptionManager(self.qfuncs, self.tfuncs)
     
@@ -88,7 +88,7 @@ class OptionCritic():
         current_qw = self.qfuncs[w_index].get_value(s).squeeze()
 
         # update intraoption policy
-        pol_loss = -logprob*(Qu - current_qw.detach()) - self.entropy_weight*entropy
+        pol_loss = (logprob*(Qu - current_qw.detach()) + self.entropy_weight*entropy)
         pol_loss.backward()
         self.pol_optims[w_index].step()
         self.pol_optims[w_index].zero_grad()
