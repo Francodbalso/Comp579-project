@@ -57,6 +57,10 @@ class IntraOptionPolicy():
         # store action bounds
         self.upper_a_bounds = torch.from_numpy(action_space.high).to(torch.float32)
         self.lower_a_bounds = torch.from_numpy(action_space.low).to(torch.float32)
+
+        # this is for the tanh action squashing
+        self.scale = (0.5 * (self.upper_a_bounds-self.lower_a_bounds)).unsqueeze(0)
+        self.bias = self.scale + self.lower_a_bounds.unsqueeze(0)
         
         # make an mlp with last layer's weights extra small initially to help tanh gradients
         self.mlp = MLP(state_dim, h_dim, 2 * action_dim)
@@ -64,36 +68,51 @@ class IntraOptionPolicy():
         self.mlp.layers[-1].bias.data *= 0.1
     
     def get_means_logstds(self, s):
-        # expecting s to be of shape (state_dim)
+        '''expecting s to be of shape (batch, state_dim)'''
         # first half of outputs will be the means, other half will be logstds
         outputs = self.mlp(s)
-        means = outputs[:self.action_dim]
+        means = outputs[:, :self.action_dim]
         # bound the log stds, using tanh, to avoid numerical instabilities later on
         # can also change the slope of the tanh to avoid needing to make weights small initially
         lowerbound, upperbound = -10, 2
-        logstds = outputs[self.action_dim:]
+        logstds = outputs[:, self.action_dim:]
         logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1) 
         return means, logstds
 
-    def get_action_logprob_entropy(self, s):
-        # expecting s to be of shape (state_dim)
+    def get_action(self, s):
+        '''
+        expecting s to be of shape (batch, state_dim)
+        returns actions in shape (batch, action_dim)
+        '''
+        with torch.no_grad():
+            means, logstds = self.get_means_logstds(s)
+
+        normal = torch.distributions.Normal(means, torch.exp(logstds))
+        raw_action = normal.sample()  
+        squashed_action = torch.tanh(raw_action)
+        scaled_action = self.scale * squashed_action + self.bias
+
+        return scaled_action
+
+    def get_logprob_entropy(self, a, s):
+        '''
+        expecting a and s to have a batch dimension
+        returns vector of log_probs and vector of entropies each of dimension (batch,)
+        '''
         means, logstds = self.get_means_logstds(s)
         normal = torch.distributions.Normal(means, torch.exp(logstds))
-        raw_action = normal.rsample()  # uses the reparametrization trick to allow differentiability
-        squashed_action = torch.tanh(raw_action)
-        scale = 0.5 * (self.upper_a_bounds-self.lower_a_bounds)
-        bias = scale + self.lower_a_bounds
-        scaled_action = scale * squashed_action + bias
 
         # now need to compute log probs of scaled actions taking into account the tanh + affine transformation
-        raw_logprob = normal.log_prob(raw_action).sum()
-        log_det_jacobian = torch.log(scale * (1 - squashed_action ** 2) + 1e-6).sum()
+        squashed_action = (a - self.bias) / self.scale
+        raw_action = torch.atanh(squashed_action)
+        raw_logprob = normal.log_prob(raw_action).sum(dim=1)
+        log_det_jacobian = torch.log(self.scale * (1 - squashed_action ** 2) + 1e-6).sum(dim=1)
         log_prob = raw_logprob - log_det_jacobian
 
         # get the differentiable entropy
-        entropy = normal.entropy().sum() 
+        entropy = normal.entropy().sum(dim=1) 
 
-        return scaled_action.detach(), log_prob, entropy
+        return log_prob, entropy
 
 
 class OptionManager():

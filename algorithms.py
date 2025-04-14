@@ -13,16 +13,17 @@ class OptionCritic():
         - adds small offset to advantage to discourage shrinking of options
         - uses replay buffer for the learned state option value function 
     '''
-    def __init__(self, n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, entropy_weight=0.01, xi=0.01, qlr=0.001, tlr=0.001, plr=0.001, use_buffer=False, batch_size=64):
+    def __init__(self, n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, entropy_weight=0.01, xi=0.01, qlr=0.001, tlr=0.001, plr=0.001, use_buffer=False, batch_size=64, horizon=1000):
         action_dim = env.action_space.shape[0]
         obs_dim = env.observation_space.shape[0]
-        print("Observation dimension:", obs_dim)
+
         if use_buffer:
-            self.buffer = ReplayBuffer(50000, obs_dim)
+            self.buffers = [ReplayBuffer(horizon, obs_dim) for i in range(n_options)]
             self.MSE = torch.nn.MSELoss(reduction = 'mean')
         else:
             self.buffer = None
             self.MSE = None
+            
         self.batch_size = batch_size
         self.epsilon = epsilon
         self.gamma = gamma
@@ -57,8 +58,8 @@ class OptionCritic():
         current_qw = self.qfuncs[w_index].get_value(s)
         #print(next_s)
         with torch.no_grad():
-            o_vals = [func.get_value(next_s).squeeze() for func in self.option_manager.option_value_funcs]
-            o_vals = torch.stack(o_vals).squeeze(-1)
+            o_vals = [func.get_value(next_s).squeeze() for func in self.qfuncs]
+            o_vals = torch.stack(o_vals)
             #print(o_vals.shape)
         #print(o_vals)
         max_qs = torch.max(o_vals, dim=0)
