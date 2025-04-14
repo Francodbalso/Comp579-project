@@ -70,7 +70,10 @@ class IntraOptionPolicy():
     def get_means_logstds(self, s):
         '''expecting s to be of shape (batch, state_dim)'''
         # first half of outputs will be the means, other half will be logstds
+        if s.dim() == 1:
+            s = s.unsqueeze(0)
         outputs = self.mlp(s)
+        #print(outputs)
         means = outputs[:, :self.action_dim]
         # bound the log stds, using tanh, to avoid numerical instabilities later on
         # can also change the slope of the tanh to avoid needing to make weights small initially
@@ -84,6 +87,8 @@ class IntraOptionPolicy():
         expecting s to be of shape (batch, state_dim)
         returns actions in shape (batch, action_dim)
         '''
+        if s.dim() == 1:
+            s = s.unsqueeze(0)
         with torch.no_grad():
             means, logstds = self.get_means_logstds(s)
 
@@ -99,6 +104,8 @@ class IntraOptionPolicy():
         expecting a and s to have a batch dimension
         returns vector of log_probs and vector of entropies each of dimension (batch,)
         '''
+        if s.dim() == 1:
+            s = s.unsqueeze(0)
         means, logstds = self.get_means_logstds(s)
         normal = torch.distributions.Normal(means, torch.exp(logstds))
 
@@ -114,6 +121,10 @@ class IntraOptionPolicy():
 
         return log_prob, entropy
 
+    def get_action_logprob_entropy(self, s):
+        action = self.get_action(s)
+        log_prob, entropy = self.get_logprob_entropy(action, s)
+        return action, log_prob, entropy
 
 class OptionManager():
     '''
@@ -167,3 +178,39 @@ class OptionManager():
         V = (probs * o_vals).sum()
 
         return V, Qu, qw, max_val, term_prob
+    
+    def get_quantities_batch(self, rewards, states, option_index, epsilon, gamma, is_terminal):
+
+        with torch.no_grad():
+            #print(states.shape)
+            #print("States:", states)
+            o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
+            o_vals = torch.stack(o_vals)
+            
+        #print("ovals:", o_vals)
+        #get current qw
+        qw = o_vals[option_index]
+        term_prob = self.termination_funcs[option_index].get_term_prob(states).squeeze()
+        detached_prob = term_prob.detach()
+        # print("detached probs:", detached_prob)
+        # print("qw:", qw)
+        #o_vals[0][0] = 100
+        #o_vals[0][1] = 99
+        #o_vals[1][0] = 199
+        maxs = torch.max(o_vals, dim=0)
+        #print("maxs:", maxs)
+        #print("(1-detached_prob)*qw ", (1-detached_prob)*qw )
+        #print("detached_prob*maxs.values", detached_prob*maxs.values)
+        #print("(1-is_terminal)", (1-is_terminal))
+        Qu = rewards.squeeze() + gamma*((1-detached_prob)*qw + detached_prob*maxs.values)*(1-is_terminal).squeeze()
+        # print("QU:", Qu)
+
+        probs = (epsilon/self.n_options) * torch.ones_like(o_vals).squeeze(-1)
+        for batch_idx in range(o_vals.shape[1]):
+            probs[maxs.indices[batch_idx], batch_idx] = 1 - epsilon + (epsilon/self.n_options)
+
+        V = probs*o_vals.squeeze(-1)
+        #print(V)
+        V = V.sum(dim=0)
+        #print(V)
+        return V, Qu, qw, maxs.values, term_prob
