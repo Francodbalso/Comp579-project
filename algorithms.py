@@ -43,10 +43,14 @@ class OptionCritic():
         '''assume already normalized state'''
         return self.option_manager.sample_option(s, self.epsilon)
     
-    def get_action_logprob_entropy(self, s, w_index):
+    def get_action(self, s, w_index):
         '''assume normalized state'''
-        action, logprob, entropy = self.pols[w_index].get_action_logprob_entropy(s)
-        return action, logprob, entropy
+        action = self.pols[w_index].get_action(s)
+        return action
+    
+    def get_logprob_entropy(self, a, s, w_index):
+        logprob, entropy = self.pols[w_index].get_logprob_entropy(a, s)
+        return logprob, entropy
 
     def bufferUpdateQ(self, w_index):
         if self.buffers[w_index] == None or not (self.buffers[w_index].cur_ind > self.batch_size or self.buffers[w_index].is_full):
@@ -80,6 +84,52 @@ class OptionCritic():
         nn.utils.clip_grad_norm_(self.qfuncs[w_index].mlp.parameters(), 1.0)
         self.qfunc_optims[w_index].step()
         self.qfunc_optims[w_index].zero_grad()
+
+    def epoch_update(self, w_index):
+        '''
+        Does one epoch of updates for all NNs for the given option.
+        This assumes that the buffers are never completely full.
+        '''
+        # doing approximate epochs cuz im lazy rn
+        n_batches = self.buffers[w_index].cur_ind // self.batch_size
+        for i in range(n_batches):
+            # sample batch
+            states, next_states, actions, rewards, dones = self.buffers[w_index].sample(self.batch_size)
+            states = torch.tensor(states, dtype=torch.float32)
+            next_states = torch.tensor(next_states, dtype=torch.float32)
+            actions  = torch.tensor(actions, dtype=torch.float32)
+            rewards = torch.tensor(rewards, dtype=torch.float32).squeeze()
+            dones = torch.tensor(dones, dtype = torch.float32).squeeze()
+            
+            # compute necessary quantities
+            current_qws = self.qfuncs[w_index].get_value(states).squeeze()
+            logprobs, entropies = self.pols[w_index].get_logprob_entropy(actions, states)
+            Vs, Qus, next_qws, max_qs, termprobs = self.option_manager.get_quantities_batch(rewards, next_states, w_index, self.epsilon, self.gamma, dones)
+
+            # update policy
+            pol_loss = -(logprobs*(Qus - current_qws.detach()) + self.entropy_weight*entropies)
+            pol_loss = pol_loss.mean()
+            pol_loss.backward()
+            nn.utils.clip_grad_norm_(self.pols[w_index].mlp.parameters(), 1.0)
+            self.pol_optims[w_index].step()
+            self.pol_optims[w_index].zero_grad()
+            
+            # update termination
+            term_loss = termprobs * (next_qws - Vs + self.xi)
+            term_loss = term_loss.mean()
+            term_loss.backward()
+            nn.utils.clip_grad_norm_(self.tfuncs[w_index].mlp.parameters(), 1.0)
+            self.tfunc_optims[w_index].step()
+            self.tfunc_optims[w_index].zero_grad()
+
+            # update Q function
+            target = rewards + self.gamma * max_qs * (1-dones)
+            q_loss = self.MSE(current_qws, target)
+            q_loss.backward()
+            nn.utils.clip_grad_norm_(self.qfuncs[w_index].mlp.parameters(), 1.0)
+            self.qfunc_optims[w_index].step()
+            self.qfunc_optims[w_index].zero_grad()
+
 
     def batch_update(self, w_index):
         if self.big_buffer == None or not(self.big_buffer.cur_ind > self.batch_size or self.big_buffer.is_full):

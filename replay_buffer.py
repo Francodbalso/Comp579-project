@@ -1,4 +1,5 @@
 import numpy as np
+
 class ReplayBuffer():
     """
     FIFO replay buffer which uses random sampling.
@@ -12,13 +13,11 @@ class ReplayBuffer():
         self.is_full = False
         self.obs_dim = obs_dim
         self.action_dim = action_dim
-    def add_entry(self, state, next_state, action, reward, done):
-    #def add_entry(self, state, next_state, reward):
-        #add an entry ot the array  (consists of adding a single vector of state, next state, action,)
-        self.arr[self.cur_ind, :]=np.concatenate((state, next_state, action, np.array([reward], dtype=float), np.array([done], dtype=float)))
-        #self.arr[self.cur_ind, :]=np.concatenate((state, next_state, np.array([reward], dtype=float)))
 
-        self.cur_ind = (self.cur_ind+1)
+    def add_entry(self, state, next_state, action, reward, done):
+        #add an entry to the array  (consists of adding a single vector of state, next state, action, reward, done)
+        self.arr[self.cur_ind, :] = np.concatenate((state, next_state, action, np.array([reward], dtype=float), np.array([done], dtype=float)))
+        self.cur_ind += 1
         if self.cur_ind >= self.max_len:
             self.is_full = True
             self.cur_ind = 0
@@ -40,4 +39,9 @@ class ReplayBuffer():
         #print(rewards)
         return states, next_states, actions, rewards, dones
         #return states, next_states, rewards, dones
+    
+    def empty(self):
+        self.arr = np.zeros((self.max_len, 2*self.obs_dim+self.action_dim+1+1))
+        self.cur_ind = 0
+        self.is_full = False
 

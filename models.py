@@ -77,7 +77,7 @@ class IntraOptionPolicy():
         means = outputs[:, :self.action_dim]
         # bound the log stds, using tanh, to avoid numerical instabilities later on
         # can also change the slope of the tanh to avoid needing to make weights small initially
-        lowerbound, upperbound = -10, 2
+        lowerbound, upperbound = -3, 2
         logstds = outputs[:, self.action_dim:]
         logstds = lowerbound + 0.5 * (upperbound - lowerbound) * (torch.tanh(logstds) + 1) 
         return means, logstds
@@ -91,7 +91,8 @@ class IntraOptionPolicy():
             s = s.unsqueeze(0)
         with torch.no_grad():
             means, logstds = self.get_means_logstds(s)
-
+        
+        #print('stds: ', torch.exp(logstds))
         normal = torch.distributions.Normal(means, torch.exp(logstds))
         raw_action = normal.sample()  
         squashed_action = torch.tanh(raw_action)
@@ -122,10 +123,6 @@ class IntraOptionPolicy():
 
         return log_prob, entropy
 
-    def get_action_logprob_entropy(self, s):
-        action = self.get_action(s)
-        log_prob, entropy = self.get_logprob_entropy(action, s)
-        return action, log_prob, entropy
 
 class OptionManager():
     '''
