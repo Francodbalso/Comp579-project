@@ -18,7 +18,7 @@ class OptionCritic():
         obs_dim = env.observation_space.shape[0]
 
         if use_buffer:
-            self.big_buffer = ReplayBuffer(5*horizon, obs_dim, action_dim)
+            self.big_buffer = ReplayBuffer(10*horizon, obs_dim, action_dim)
             self.buffers = [ReplayBuffer(horizon, obs_dim, action_dim) for i in range(n_options)]
             self.MSE = torch.nn.MSELoss(reduction = 'mean')
         else:
@@ -96,26 +96,30 @@ class OptionCritic():
         # print("rewards:", rewards)
         # print("dones:", dones)
 
-        current_qws = self.qfuncs[w_index].get_value(states)
+        current_qws = self.qfuncs[w_index].get_value(states).squeeze()
         logprobs, entropies = self.pols[w_index].get_logprob_entropy(actions, states)
         Vs, Qus, next_qws, max_qs, termprobs = self.option_manager.get_quantities_batch(rewards, next_states, w_index, self.epsilon, self.gamma, dones)
+        # print(current_qws)
         # print("Vs:", Vs)
         # print("Qus:", Qus)
         # print("next_qws:", next_qws)
         # print("max_qs:", max_qs)
         # print("termprobs:", termprobs)
-
-        pol_loss = (logprobs*(Qus - current_qws.detach()) + self.entropy_weight*entropies)
-        #print(pol_loss)
-        pol_loss = pol_loss.sum()
-        print("Pooling loss:", pol_loss)
+        # print("log_probs", logprobs)
+        # print("entropies", entropies)
+        pol_loss = -(logprobs*(Qus - current_qws.detach()) + self.entropy_weight*entropies)
+        #print("Policy loss", pol_loss)
+        pol_loss = pol_loss.mean()
+        #print("Pooling loss:", pol_loss)
         pol_loss.backward()
         nn.utils.clip_grad_norm_(self.pols[w_index].mlp.parameters(), 1.0)
         self.pol_optims[w_index].step()
         self.pol_optims[w_index].zero_grad()
         
+        
         term_loss = termprobs * (next_qws - Vs+ self.xi)
-        term_loss = term_loss.sum()
+        #print("Termination loss", term_loss)
+        term_loss = term_loss.mean()
         term_loss.backward()
         nn.utils.clip_grad_norm_(self.tfuncs[w_index].mlp.parameters(), 1.0)
         self.tfunc_optims[w_index].step()

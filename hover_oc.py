@@ -5,22 +5,23 @@ import numpy as np
 import torch
 from algorithms import OptionCritic
 
-env = gym.make('PyFlyt/QuadX-Hover-v4')
+env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=True)
 n_options = 4
-OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, qlr=0.000001, tlr=0.000001, plr=0.000001, use_buffer=True, batch_size=3)
+OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, qlr=0.000001, tlr=0.000001, plr=0.000001, use_buffer=True, batch_size=64)
 
-n_steps = 100
+n_steps = 200000
 rewards = []
 end_steps = []
 obs, info = env.reset()
 obs = torch.from_numpy(obs).to(torch.float32)
 w_index = OC.sample_option(obs)
-update_freq = 10
+update_freq = 1000
 tot_reward = 0
 penalty = 0 # penalty incurred for terminating options
 t0 = time.time()
 for step in range(n_steps):
-    #print(step)
+    if step %10000 == 0:
+        print(step)
     # get policy outputs
     action, logprob, entropy = OC.get_action_logprob_entropy(obs, w_index)
     #print(action.shape)
@@ -34,8 +35,10 @@ for step in range(n_steps):
     tot_reward += r
     done = term or trunc
     if (step+1)%update_freq == 0:
-        OC.batch_update(w_index)
-        OC.bufferUpdateQ(w_index)
+        for k in range(0, 1):
+            for w_index in range(0, n_options):
+                OC.batch_update(w_index)
+                OC.bufferUpdateQ(w_index)
     if not done:
         next_obs = torch.from_numpy(next_obs).to(torch.float32)
         # make updates

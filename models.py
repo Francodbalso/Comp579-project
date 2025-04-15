@@ -107,6 +107,7 @@ class IntraOptionPolicy():
         if s.dim() == 1:
             s = s.unsqueeze(0)
         means, logstds = self.get_means_logstds(s)
+        #print(means, logstds)
         normal = torch.distributions.Normal(means, torch.exp(logstds))
 
         # now need to compute log probs of scaled actions taking into account the tanh + affine transformation
