@@ -4,6 +4,8 @@ import gymnasium as gym
 import numpy as np
 from models import Qw, TerminationFunction, IntraOptionPolicy, OptionManager
 from replay_buffer import ReplayBuffer
+from stable_baselines3.ppo import MlpPolicy
+from stable_baselines3.common.utils import constant_fn
 
 class OptionCritic():
     '''
@@ -36,9 +38,14 @@ class OptionCritic():
         self.tfuncs = [TerminationFunction(obs_dim, h_dim) for i in range(n_options)]
         self.tfunc_optims = [torch.optim.SGD(m.mlp.parameters(), lr=tlr, weight_decay=0.001) for m in self.tfuncs]
         self.pols = [IntraOptionPolicy(obs_dim, h_dim, action_dim, env.action_space) for i in range(n_options)]
+        #self.pols = [MlpPolicy(env.observation_space, env.action_space, lr_schedule=constant_fn(0.00001)) for i in range(n_options)]
         self.pol_optims = [torch.optim.SGD(m.mlp.parameters(), lr=plr, weight_decay=0.001) for m in self.pols]
         self.option_manager = OptionManager(self.qfuncs, self.tfuncs)
-    
+        self.old_pols = [IntraOptionPolicy(obs_dim, h_dim, action_dim, env.action_space) for i in range(n_options)]
+        #self.pols = [MlpPolicy(env.observation_space, env.action_spac, lr_schedule=constant_fn(0.00001)) for i in range(n_options)]
+        self.pol_loss_over_time = []
+        self.Q_loss_over_time = []
+        self.term_loss_over_time = []
     def sample_option(self, s):
         '''assume already normalized state'''
         return self.option_manager.sample_option(s, self.epsilon)
@@ -67,7 +74,7 @@ class OptionCritic():
             o_vals = [func.get_value(next_s).squeeze() for func in self.qfuncs]
             o_vals = torch.stack(o_vals)
             #print(o_vals.shape)
-        # print("++++++++++++++++++++++++++++++PRINTS IN BUFFER UPDAT Q++++++++++++++++++++++++++++++")
+        # print("++++++++++++++++++++++++++++++PRINTS IN BUFFER UPDATE Q++++++++++++++++++++++++++++++")
         # print(o_vals)
         max_qs = torch.max(o_vals, dim=0)
         # print(max_qs.values)
@@ -80,10 +87,65 @@ class OptionCritic():
         # print("current qw", current_qw)
         # print("++++++++++++++++++++++++++++++END++++++++++++++++++++++++++++++")
         q_loss = self.MSE(current_qw, target)
+        #print("QFunction loss:", q_loss)
         q_loss.backward()
         nn.utils.clip_grad_norm_(self.qfuncs[w_index].mlp.parameters(), 1.0)
         self.qfunc_optims[w_index].step()
         self.qfunc_optims[w_index].zero_grad()
+
+    def ppo_update(self, w_index):
+        n_batches = self.buffers[w_index].cur_ind // self.batch_size
+        eps_clip = 0.2
+        for i in range(n_batches):
+            # sample batch
+            states, next_states, actions, rewards, dones = self.buffers[w_index].sample(self.batch_size)
+            states = torch.tensor(states, dtype=torch.float32)
+            next_states = torch.tensor(next_states, dtype=torch.float32)
+            actions  = torch.tensor(actions, dtype=torch.float32)
+            rewards = torch.tensor(rewards, dtype=torch.float32).squeeze()
+            dones = torch.tensor(dones, dtype = torch.float32).squeeze()
+            
+            # compute necessary quantities
+            current_qws = self.qfuncs[w_index].get_value(states).squeeze()
+            logprobs, entropies = self.pols[w_index].get_logprob_entropy(actions, states)
+            Vs, Qus, next_qws, max_qs, termprobs = self.option_manager.get_quantities_batch(rewards, next_states, w_index, self.epsilon, self.gamma, dones)
+            #current_Vs = self.option_manager.get_Values_batch(states, self.epsilon)
+            old_logprobs, _ = self.old_pols[w_index].get_logprob_entropy(actions, states)
+            # update policy
+            ratios = (logprobs-old_logprobs).exp()
+            advantages = (Qus_ppo - current_qws.detach())
+
+            surrogate1 = ratios * advantages
+            surrogate2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
+            ppo_loss = -torch.min(surrogate1, surrogate2)
+            entropy_bonus = self.entropy_weight*entropies
+
+            pol_loss = ppo_loss - entropy_bonus
+            pol_loss = pol_loss.mean()
+            self.pol_loss_over_time.append(pol_loss.item())
+            pol_loss.backward()
+            #nn.utils.clip_grad_norm_(self.pols[w_index].mlp.parameters(), 1.0)
+            self.pol_optims[w_index].step()
+            self.pol_optims[w_index].zero_grad()
+
+            # update termination
+            term_loss = termprobs * (next_qws - Vs + self.xi)
+            term_loss = term_loss.mean()
+            self.term_loss_over_time.append(term_loss.item())
+            term_loss.backward()
+            nn.utils.clip_grad_norm_(self.tfuncs[w_index].mlp.parameters(), 1.0)
+            self.tfunc_optims[w_index].step()
+            self.tfunc_optims[w_index].zero_grad()
+
+            # update Q function
+            target = rewards + self.gamma * max_qs * (1-dones)
+            q_loss = self.MSE(current_qws, target)
+            self.Q_loss_over_time.append(q_loss.item())
+            q_loss.backward()
+            nn.utils.clip_grad_norm_(self.qfuncs[w_index].mlp.parameters(), 1.0)
+            self.qfunc_optims[w_index].step()
+            self.qfunc_optims[w_index].zero_grad()
+
 
     def epoch_update(self, w_index):
         '''
@@ -107,7 +169,7 @@ class OptionCritic():
             Vs, Qus, next_qws, max_qs, termprobs = self.option_manager.get_quantities_batch(rewards, next_states, w_index, self.epsilon, self.gamma, dones)
 
             # update policy
-            pol_loss = -(logprobs*(Qus - current_qws.detach()) + self.entropy_weight*entropies)
+            pol_loss = (logprobs*(Qus - current_qws.detach()) - self.entropy_weight*entropies)
             pol_loss = pol_loss.mean()
             pol_loss.backward()
             nn.utils.clip_grad_norm_(self.pols[w_index].mlp.parameters(), 1.0)
@@ -154,13 +216,13 @@ class OptionCritic():
         # print("Qus:", Qus)
         # print("next_qws:", next_qws)
         # print("max_qs:", max_qs)
-        # print("termprobs:", termprobs)
+        print("termprobs:", termprobs)
         # print("log_probs", logprobs)
         # print("entropies", entropies)
         pol_loss = -(logprobs*(Qus - current_qws.detach()) + self.entropy_weight*entropies)
         #print("Policy loss", pol_loss)
         pol_loss = pol_loss.mean()
-        #print("Pooling loss:", pol_loss)
+        #print("Policy loss:", pol_loss)
         pol_loss.backward()
         nn.utils.clip_grad_norm_(self.pols[w_index].mlp.parameters(), 1.0)
         self.pol_optims[w_index].step()
@@ -168,8 +230,9 @@ class OptionCritic():
         
         
         term_loss = termprobs * (next_qws - Vs+ self.xi)
-        #print("Termination loss", term_loss)
+        
         term_loss = term_loss.mean()
+        #print("Termination loss", term_loss)
         term_loss.backward()
         nn.utils.clip_grad_norm_(self.tfuncs[w_index].mlp.parameters(), 1.0)
         self.tfunc_optims[w_index].step()

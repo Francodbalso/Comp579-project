@@ -1,3 +1,4 @@
 outs/
 data/
 plots/
+*.pyc

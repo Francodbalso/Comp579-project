@@ -6,14 +6,14 @@ import torch
 from algorithms import OptionCritic
 
 env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
-n_options = 2
+n_options = 1
 batch_size = 64
-update_freq = 2000
-n_epochs = 3 
-n_steps = 100000
+update_freq = 500
+n_epochs = 10
+n_steps = 500000
 
-OC = OptionCritic(n_options, env, epsilon=0.05, gamma=0.99, h_dim=128, 
-                  qlr=0.0001, tlr=0.0001, plr=0.0001, 
+OC = OptionCritic(n_options, env, epsilon=0.20, gamma=0.99, h_dim=128, 
+                  qlr=0.000001, tlr=0.000001, plr=0.00001, 
                   use_buffer=True, batch_size=batch_size, horizon=update_freq)
 rewards = []
 end_steps = []
@@ -38,11 +38,14 @@ for step in range(n_steps):
     done = term or trunc
 
     if (step+1) % update_freq == 0:
+        for i in range(0, n_options):
+            OC.old_pols[i].mlp.load_state_dict(OC.pols[i].mlp.state_dict())
         for w in range(n_options):
             for k in range(n_epochs):
                 # OC.batch_update(w)
                 # OC.bufferUpdateQ(w)
-                OC.epoch_update(w)
+                #OC.epoch_update(w)
+                OC.ppo_update(w)
             OC.buffers[w].empty()
 
     if not done:
@@ -66,8 +69,11 @@ for step in range(n_steps):
         penalty = 0
         w_index = OC.sample_option(obs)
     
-    if step % (n_steps // 10) == 0 or step == n_steps - 1:
+    if step % (n_steps // 1000) == 0 or step == n_steps - 1:
         # save results
         elapsed_time = time.time() - t0
         print(f'saving at step {step} after {elapsed_time / 60} minutes')
         np.savez('../data/hover_oc/test_run.npz', rewards=np.array(rewards), end_steps=np.array(end_steps))
+        np.save('../data/hover_oc/Policy_loss_overtime', OC.pol_loss_over_time)
+        np.save('../data/hover_oc/Q_loss_overtime', OC.Q_loss_over_time)
+        np.save('../data/hover_oc/Termination_loss_overtime', OC.term_loss_over_time)

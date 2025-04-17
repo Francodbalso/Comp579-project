@@ -39,6 +39,10 @@ class TerminationFunction():
     '''
     def __init__(self, state_dim, h_dim):
         self.mlp = MLP(state_dim, h_dim, 1)
+        desired_prob = 0.2  # or whatever you'd like
+        initial_bias = torch.logit(torch.tensor(desired_prob))
+        # Access the final linear layer and set its bias
+        self.mlp.layers[-1].bias.data.fill_(initial_bias.item())
         self.sigmoid = nn.Sigmoid()
 
     def get_term_prob(self, s):
@@ -176,7 +180,21 @@ class OptionManager():
         V = (probs * o_vals).sum()
 
         return V, Qu, qw, max_val, term_prob
-    
+    def get_Values_batch(self, states, epsilon):
+        with torch.no_grad():
+            #print(states.shape)
+            #print("States:", states)
+            o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
+            o_vals = torch.stack(o_vals)
+        maxs = torch.max(o_vals, dim=0)
+
+        probs = (epsilon/self.n_options) * torch.ones_like(o_vals).squeeze(-1)
+        for batch_idx in range(o_vals.shape[1]):
+            probs[maxs.indices[batch_idx], batch_idx] = 1 - epsilon + (epsilon/self.n_options)
+        V = probs*o_vals.squeeze(-1)
+        #print(V)
+        V = V.sum(dim=0)
+        return V
     def get_quantities_batch(self, rewards, states, option_index, epsilon, gamma, is_terminal):
 
         with torch.no_grad():
