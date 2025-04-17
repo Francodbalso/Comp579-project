@@ -113,7 +113,7 @@ class OptionCritic():
             old_logprobs, _ = self.old_pols[w_index].get_logprob_entropy(actions, states)
             # update policy
             ratios = (logprobs-old_logprobs).exp()
-            advantages = (Qus_ppo - current_qws.detach())
+            advantages = (Qus - current_qws.detach())
 
             surrogate1 = ratios * advantages
             surrogate2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
@@ -138,7 +138,7 @@ class OptionCritic():
             self.tfunc_optims[w_index].zero_grad()
 
             # update Q function
-            target = rewards + self.gamma * max_qs * (1-dones)
+            target = rewards + self.gamma * ((1-termprobs.detach()) * next_qws + termprobs.detach() * max_qs) * (1-dones)
             q_loss = self.MSE(current_qws, target)
             self.Q_loss_over_time.append(q_loss.item())
             q_loss.backward()

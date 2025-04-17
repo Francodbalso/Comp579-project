@@ -6,14 +6,14 @@ import torch
 from algorithms import OptionCritic
 
 env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
-n_options = 1
+n_options = 2
 batch_size = 64
-update_freq = 500
-n_epochs = 10
-n_steps = 500000
+update_freq = 2000
+n_epochs = 6
+n_steps = 100000
 
-OC = OptionCritic(n_options, env, epsilon=0.20, gamma=0.99, h_dim=128, 
-                  qlr=0.000001, tlr=0.000001, plr=0.00001, 
+OC = OptionCritic(n_options, env, epsilon=0.15, gamma=0.99, h_dim=128, 
+                  qlr=0.00001, tlr=0.00001, plr=0.00001, 
                   use_buffer=True, batch_size=batch_size, horizon=update_freq)
 rewards = []
 end_steps = []
