@@ -1,16 +1,17 @@
 import gymnasium as gym
 import time
-import PyFlyt.gym_envs
+import PyFlyt.gym_envs  
 import numpy as np
 import torch
 from algorithms import OptionCritic
+import copy
 
 env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
-n_options = 2
+n_options = 1
 batch_size = 64
-update_freq = 2000
-n_epochs = 6
-n_steps = 100000
+update_freq = 1000
+n_epochs = 10
+n_steps = 500000
 
 OC = OptionCritic(n_options, env, epsilon=0.15, gamma=0.99, h_dim=128, 
                   qlr=0.00001, tlr=0.00001, plr=0.00001, 
@@ -39,7 +40,9 @@ for step in range(n_steps):
 
     if (step+1) % update_freq == 0:
         for i in range(0, n_options):
-            OC.old_pols[i].mlp.load_state_dict(OC.pols[i].mlp.state_dict())
+            #OC.old_pols[i].mlp.load_state_dict(OC.pols[i].mlp.state_dict())
+            #OC.old_pols[i].policy.load_state_dict(OC.pols[i].policy.state_dict())
+            OC.old_pols[i].load_state_dict(OC.pols[i].state_dict())
         for w in range(n_options):
             for k in range(n_epochs):
                 # OC.batch_update(w)
@@ -74,6 +77,6 @@ for step in range(n_steps):
         elapsed_time = time.time() - t0
         print(f'saving at step {step} after {elapsed_time / 60} minutes')
         np.savez('../data/hover_oc/test_run.npz', rewards=np.array(rewards), end_steps=np.array(end_steps))
-        np.save('../data/hover_oc/Policy_loss_overtime', OC.pol_loss_over_time)
-        np.save('../data/hover_oc/Q_loss_overtime', OC.Q_loss_over_time)
-        np.save('../data/hover_oc/Termination_loss_overtime', OC.term_loss_over_time)
+        #np.save('../data/hover_oc/Policy_loss_overtime', OC.pol_loss_over_time)
+        #np.save('../data/hover_oc/Q_loss_overtime', OC.Q_loss_over_time)
+        #np.save('../data/hover_oc/Termination_loss_overtime', OC.term_loss_over_time)
