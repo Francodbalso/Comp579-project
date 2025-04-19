@@ -7,6 +7,7 @@ from replay_buffer import ReplayBuffer
 from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common.utils import constant_fn
 
+
 class OptionCritic():
     '''
     classic option critic algorithm that uses the following additional techniques:
@@ -45,8 +46,11 @@ class OptionCritic():
     
     def get_action(self, s, w_index):
         '''assume normalized state'''
-        action = self.pols[w_index].get_action(s)
-        return action
+        #action = self.pols[w_index].get_action(s)
+        if s.ndim == 1:
+             s = s[None, :]
+        action, value, log_prob = self.pols[w_index].forward(s)
+        return action.detach()
     
     def get_logprob_entropy(self, a, s, w_index):
         logprob, entropy = self.pols[w_index].get_logprob_entropy(a, s)
@@ -91,7 +95,7 @@ class OptionCritic():
             ppo_loss = -torch.min(surrogate1, surrogate2)
             entropy_bonus = self.entropy_weight*entropies
 
-            pol_loss = ppo_loss - entropy_bonus
+            pol_loss = ppo_loss - entropy_bonus + q_loss
             pol_loss = pol_loss.mean()
             avg_pol_loss += pol_loss.item()
             pol_loss.backward()

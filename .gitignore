@@ -2,3 +2,4 @@ outs/
 data/
 plots/
 *.pyc
+__pycache__/

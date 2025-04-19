@@ -1,9 +1,10 @@
 import gymnasium as gym
 import time
-import PyFlyt.gym_envs
+import PyFlyt.gym_envs  
 import numpy as np
 import torch
 from algorithms import OptionCritic
+import copy
 
 #savepath = 'hover_oc/test_run'
 #env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)

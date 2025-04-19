@@ -195,12 +195,13 @@ class OptionManager():
         #print(V)
         V = V.sum(dim=0)
         return V
+    
     def get_quantities_batch(self, rewards, states, option_index, epsilon, gamma, is_terminal):
 
         with torch.no_grad():
             #print(states.shape)
             #print("States:", states)
-            o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
+            #o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
             o_vals = torch.stack(o_vals)
             
         #print("ovals:", o_vals)
