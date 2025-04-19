@@ -1,43 +1,40 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+# path = '../data/hover_oc/test_run.npz'
+# savename = 'hover_oc_run_info'
+path = '../data/pendulum/test_run.npz'
+savename = 'pendulum_oc'
 
+fig, ax = plt.subplots(2, 2, figsize=(12,8))
 
-fig, ax = plt.subplots(2, 2)
-
-data = np.load('../data/hover_oc/test_run.npz')
-steps = data['end_steps']
+data = np.load(path)
+end_steps = data['end_steps']
+update_steps = data['update_steps']
 rewards = data['rewards']
-ax[0][0].plot(steps, rewards)
+pol_loss = data['pol_loss']
+q_loss = data['q_loss']
+term_loss = data['term_loss']
+
+ax[0][0].plot(end_steps, rewards)
 ax[0][0].set_xlabel('Step')
 ax[0][0].set_ylabel('Reward')
-ax[0][0].set_title('Hover OC')
-#ax[0][0].savefig('../plots/hover_oc_reward_test.png')
+ax[0][0].set_title('Hover OC Reward')
 
-data = np.load('../data/hover_oc/Policy_loss_overtime.npy')
-print(data)
-#steps = data['end_steps']
-#rewards = data['rewards']
-ax[0][1].plot(data)
+ax[0][1].plot(update_steps, pol_loss)
 ax[0][1].set_xlabel('Step')
 ax[0][1].set_ylabel('Loss')
-ax[0][1].set_title('Hover OC Policy Loss')
+ax[0][1].set_title('Policy Loss')
 
-data = np.load('../data/hover_oc/Q_loss_overtime.npy')
-# steps = data['end_steps']
-# rewards = data['rewards']
-ax[1][1].plot(data)
+ax[1][1].plot(update_steps, q_loss)
 ax[1][1].set_xlabel('step')
 ax[1][1].set_ylabel('Loss')
-ax[1][1].set_title('Hover OC Q loss')
+ax[1][1].set_title('Q loss')
 
-data = np.load('../data/hover_oc/Termination_loss_overtime.npy')
-# steps = data['end_steps']
-# rewards = data['rewards']
-ax[1][0].plot(data)
+ax[1][0].plot(update_steps, term_loss)
 ax[1][0].set_xlabel('Step')
 ax[1][0].set_ylabel('Reward')
-ax[1][0].set_title('Hover OC')
-ax[1][0]
+ax[1][0].set_title('Term loss')
 
-plt.savefig('../plots/hover_oc_run_info.png')
+fig.tight_layout()
+plt.savefig(f'../plots/{savename}.png')

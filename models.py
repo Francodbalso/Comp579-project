@@ -96,7 +96,7 @@ class IntraOptionPolicy():
         with torch.no_grad():
             means, logstds = self.get_means_logstds(s)
         
-        #print('stds: ', torch.exp(logstds))
+        print('means: ', means, ' stds: ', torch.exp(logstds))
         normal = torch.distributions.Normal(means, torch.exp(logstds))
         raw_action = normal.sample()  
         squashed_action = torch.tanh(raw_action)
@@ -117,9 +117,9 @@ class IntraOptionPolicy():
 
         # now need to compute log probs of scaled actions taking into account the tanh + affine transformation
         squashed_action = (a - self.bias) / self.scale
-        raw_action = torch.atanh(squashed_action)
+        raw_action = torch.atanh(torch.clamp(squashed_action, -0.999, 0.999))
         raw_logprob = normal.log_prob(raw_action).sum(dim=1)
-        log_det_jacobian = torch.log(self.scale * (1 - squashed_action ** 2) + 1e-6).sum(dim=1)
+        log_det_jacobian = torch.log(self.scale * (1 - squashed_action ** 2 + 1e-6) + 1e-6).sum(dim=1)
         log_prob = raw_logprob - log_det_jacobian
 
         # get the differentiable entropy
