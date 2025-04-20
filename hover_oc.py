@@ -6,18 +6,19 @@ import torch
 from algorithms import OptionCritic
 import copy
 
+torch.manual_seed(1)
 #savepath = 'hover_oc/test_run'
-#env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
-savepath = 'pendulum/test_run'
-env = gym.make('InvertedPendulum-v5')
+env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
+savepath = 'hover_oc/test_run_-3'
+# env = gym.make('InvertedPendulum-v5')
 n_options = 1
 batch_size = 64
 update_freq = 2000
 n_epochs = 10
-n_steps = 200000
+n_steps = 1000000
 
 OC = OptionCritic(n_options, env, epsilon=0.15, gamma=0.99, h_dim=128, 
-                  qlr=0.001, tlr=0.001, plr=0.001, 
+                  qlr=0.00001, tlr=0.00001, plr=0.00001, 
                   batch_size=batch_size, horizon=update_freq+1)
 rewards = []
 end_steps = []
@@ -33,6 +34,8 @@ tot_reward = 0
 penalty = 0 # penalty incurred for terminating options
 t0 = time.time()
 for step in range(n_steps):
+    if step%1000 == 0:
+        print(step)
     # get policy outputs
     action = OC.get_action(obs, w_index)
 
@@ -44,8 +47,12 @@ for step in range(n_steps):
     # log things
     with torch.no_grad():
         # doing all these now to save computation inside the update loops
-        logprob, _ = OC.pols[w_index].get_logprob_entropy(action, obs[None, :])
-        logprob = logprob.squeeze().item()
+        #logprob, _ = OC.pols[w_index].get_logprob_entropy(action, obs[None, :])
+        #UNCOMMENT LINE BELOW FOR SB3
+        _, logprob, _ = OC.pols[w_index].evaluate_actions(obs[None, :], action[None, :])
+        #print(logprob.sum())
+        logprob = logprob.sum()
+        #logprob = logprob.squeeze().item()
         qw = OC.qfuncs[w_index].get_value(obs).squeeze().item()
         next_qws = [OC.qfuncs[i].get_value(next_obs).squeeze().item() for i in range(n_options)]
         next_qw = next_qws[w_index]
@@ -91,7 +98,7 @@ for step in range(n_steps):
         penalty = 0
         w_index = OC.sample_option(obs)
     
-    if step % (n_steps // 1000) == 0 or step == n_steps - 1:
+    if step % (n_steps // 10) == 0 or step == n_steps - 1:
         # save results
         elapsed_time = time.time() - t0
         print(f'saving at step {step} after {elapsed_time / 60} minutes')

@@ -1,11 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
-# path = '../data/hover_oc/test_run.npz'
-# savename = 'hover_oc_run_info'
-path = '../data/pendulum/test_run.npz'
-savename = 'pendulum_oc'
-
+path = '../data/hover_oc/test_run.npz'
+savename = 'hover_oc_run_info'
+#path = '../data/pendulum/test_run.npz'
+#savename = 'pendulum_oc'
+print("plotting", savename)
 fig, ax = plt.subplots(2, 2, figsize=(12,8))
 
 data = np.load(path)

@@ -201,7 +201,7 @@ class OptionManager():
         with torch.no_grad():
             #print(states.shape)
             #print("States:", states)
-            #o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
+            o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
             o_vals = torch.stack(o_vals)
             
         #print("ovals:", o_vals)
