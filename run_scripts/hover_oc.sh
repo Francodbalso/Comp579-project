@@ -5,6 +5,7 @@
 #SBATCH --mem=5G
 #SBATCH --time=02:00:00
 #SBATCH --output=%N-%j.out
+#SBATCH --qos=comp579-0gpu-4cpu-72h
 #SBATCH --account=winter2025-comp579 
 
 module load miniconda/miniconda-winter2025

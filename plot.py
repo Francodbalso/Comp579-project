@@ -1,7 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-path = '../data/hover_oc/test_run.npz'
-savename = 'hover_oc_run_info'
+#path = '../data/hover_oc/test_run_Waypoints.npz'
+qlr = 0.0001
+n_options = 1
+path= '../data/hover_oc/SB3_1Q_hover_'+str(qlr)+'_'+str(n_options)+'_seed1.npz'
+savename = 'waypoint_oc_run_info'
 #path = '../data/pendulum/test_run.npz'
 #savename = 'pendulum_oc'
 print("plotting", savename)
