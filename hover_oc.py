@@ -7,23 +7,24 @@ from algorithms import OptionCritic
 import copy
 from PyFlyt.gym_envs import FlattenWaypointEnv
 
-seed_num = 2
-torch.manual_seed(seed_num)
 
-env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
-# env = gym.make('PyFlyt/QuadX-Waypoints-v4')
-# env = FlattenWaypointEnv(env, context_length=2)
+
+# env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
+env = gym.make('PyFlyt/QuadX-Waypoints-v4')
+env = FlattenWaypointEnv(env, context_length=3)
 # env = gym.make('InvertedPendulum-v5')
-print("Observation space", env.observation_space.shape[0])
 
-for lr in [0.0001]:
-    for n_options in [1, 2]:
-        savepath = 'hover_oc/SB3_multiQ_hover_all_lr'+str(lr)+'_nopts'+str(n_options)+'_seed'+str(seed_num)
-        
+for seed in range(1, 5):
+    torch.manual_seed(seed)
+
+    for n_options in [1, 2, 4]:
+
+        lr = 0.0001
+        savepath = 'waypoints/SB3_multiQ_waypoints_all_lr'+str(lr)+'_nopts'+str(n_options)+'_seed'+str(seed)
         batch_size = 128
-        update_freq = 2000
+        update_freq = 2000 + 1500*(n_options - 1)
         n_epochs = 10
-        n_steps = 400000
+        n_steps = 800000
 
         OC = OptionCritic(n_options, env, epsilon=0.15, gamma=0.99, h_dim=128, 
                         qlr=lr, tlr=lr, plr=lr, entropy_weight=0.001, xi=0.01,
