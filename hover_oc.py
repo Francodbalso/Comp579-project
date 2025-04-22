@@ -7,27 +7,26 @@ from algorithms import OptionCritic
 import copy
 from PyFlyt.gym_envs import FlattenWaypointEnv
 
-seed_num = 1
+seed_num = 2
 torch.manual_seed(seed_num)
-#savepath = 'hover_oc/test_run'
+
 env = gym.make('PyFlyt/QuadX-Hover-v4', sparse_reward=False)
 # env = gym.make('PyFlyt/QuadX-Waypoints-v4')
 # env = FlattenWaypointEnv(env, context_length=2)
+# env = gym.make('InvertedPendulum-v5')
 print("Observation space", env.observation_space.shape[0])
 
-for qlr in [0.0001, 0.00001, 0.000001]:
-    for n_options in [1, 2, 4]:
-        savepath = 'hover_oc/SB3_1Q_hover_'+str(qlr)+'_'+str(n_options)+'_seed'+str(seed_num)
-        # env = gym.make('InvertedPendulum-v5')
-        #n_options = n_options
+for lr in [0.0001]:
+    for n_options in [1, 2]:
+        savepath = 'hover_oc/SB3_multiQ_hover_all_lr'+str(lr)+'_nopts'+str(n_options)+'_seed'+str(seed_num)
+        
         batch_size = 128
         update_freq = 2000
         n_epochs = 10
-        n_steps = 500000
-        one_hots = [torch.nn.functional.one_hot(torch.tensor(i), num_classes=n_options).to(torch.float32) for i in range(n_options)]
+        n_steps = 400000
 
         OC = OptionCritic(n_options, env, epsilon=0.15, gamma=0.99, h_dim=128, 
-                        qlr=qlr, tlr=0.00001, plr=0.00001, 
+                        qlr=lr, tlr=lr, plr=lr, entropy_weight=0.001, xi=0.01,
                         batch_size=batch_size, horizon=update_freq+1)
         rewards = []
         end_steps = []
@@ -62,10 +61,10 @@ for qlr in [0.0001, 0.00001, 0.000001]:
                 #print(logprob.sum())
                 logprob = logprob.sum()
                 #logprob = logprob.squeeze().item()
-                qw = OC.qfunc.get_value(torch.cat((obs, one_hots[w_index]))).squeeze().item()
-                next_qws = torch.tensor([OC.qfunc.get_value(torch.cat((obs, o_hot))).squeeze().item() for o_hot in one_hots])
-                #qw = OC.qfuncs[w_index].get_value(obs).squeeze().item()
-                #next_qws = [OC.qfuncs[i].get_value(next_obs).squeeze().item() for i in range(n_options)]
+                # qw = OC.qfunc.get_value(obs, w_index).squeeze().item()
+                # next_qws = torch.tensor([OC.qfunc.get_value(next_obs, w).squeeze().item() for w in range(n_options)])
+                qw = OC.qfuncs[w_index].get_value(obs).squeeze().item()
+                next_qws = [OC.qfuncs[i].get_value(next_obs).squeeze().item() for i in range(n_options)]
                 next_qw = next_qws[w_index]
                 max_next_qw = max(next_qws)
             # print("qw:", qw)

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import gymnasium as gym
 import numpy as np
-from models import Qw, TerminationFunction, IntraOptionPolicy, OptionManager, SingleQOptionManager
+from models import Qw, SingleQw, TerminationFunction, IntraOptionPolicy, OptionManager, SingleQOptionManager
 from replay_buffer import ReplayBuffer
 from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common.utils import constant_fn
@@ -33,33 +33,28 @@ class OptionCritic():
         self.xi = xi # for option shrinkage regularization
         self.entropy_weight = entropy_weight
 
-        # self.qfuncs = [Qw(obs_dim, h_dim) for i in range(n_options)]
-        # self.qfunc_optims = [torch.optim.Adam(m.mlp.parameters(),betas=[0.999, 0.999], lr=qlr, weight_decay=0.001) for m in self.qfuncs]
-        self.qfunc = Qw(obs_dim+n_options, h_dim)
-        self.qfunc_optim = torch.optim.Adam(self.qfunc.mlp.parameters(),betas=[0.999, 0.999], lr=qlr, weight_decay=0.001)
+        self.qfuncs = [Qw(obs_dim, h_dim) for i in range(n_options)]
+        self.qfunc_optims = [torch.optim.Adam(m.mlp.parameters(),betas=[0.99, 0.99], lr=qlr, weight_decay=0.0001) for m in self.qfuncs]
+        # self.qfunc = SingleQw(obs_dim, 20, h_dim, n_options)
+        # self.qfunc_optim = torch.optim.Adam(self.qfunc.parameters(), betas=[0.99, 0.99], lr=qlr, weight_decay=0.001)
 
         self.tfuncs = [TerminationFunction(obs_dim, h_dim) for i in range(n_options)]
-        self.tfunc_optims = [torch.optim.Adam(m.mlp.parameters(),betas=[0.999, 0.999], lr=tlr, weight_decay=0.001) for m in self.tfuncs]
+        self.tfunc_optims = [torch.optim.Adam(m.mlp.parameters(),betas=[0.99, 0.99], lr=tlr, weight_decay=0.0001) for m in self.tfuncs]
         #self.pols = [IntraOptionPolicy(obs_dim, h_dim, action_dim, env.action_space) for i in range(n_options)]
         #self.pol_optims = [torch.optim.Adam(m.mlp.parameters(), lr=plr, weight_decay=0.001) for m in self.pols]
+
         #UNCOMMENT LINEs BELOW FOR SB3
-        policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[]))  # two 128‐unit hidden layers for the actor, no vf head
+        policy_kwargs = dict(net_arch=dict(pi=[h_dim, h_dim], vf=[]))  # two 128‐unit hidden layers for the actor, no vf head
         self.pols = [MlpPolicy(observation_space=env.observation_space,
             action_space=env.action_space,
             lr_schedule=lambda _: plr,
-            net_arch=policy_kwargs['net_arch']) for _ in range(n_options)]
-        for m in self.pols:
-            if isinstance(m, nn.Linear):
-                gain = 0.01 if m.out_features == self.action_dim * 2 else nn.init.calculate_gain("relu")
-                nn.init.orthogonal_(m.weight, gain=gain)
-                nn.init.constant_(m.bias, 0.0)
+            net_arch=policy_kwargs['net_arch'],
+            optimizer_kwargs={'eps':1e-5, 'betas':[0.99, 0.99], 'weight_decay':0.0001}) for _ in range(n_options)]
         #UNCOMMENT LINEs ABOVE FOR SB3
-        self.option_manager = SingleQOptionManager(self.qfunc, self.tfuncs)
-        # self.old_pols = [IntraOptionPolicy(obs_dim, h_dim, action_dim, env.action_space) for i in range(n_options)]
-        # self.old_pols = [MlpPolicy(observation_space=env.observation_space,
-        #     action_space=env.action_space,
-        #     lr_schedule=lambda _: 0.00001,
-        #     net_arch=policy_kwargs['net_arch']) for _ in range(n_options)]        
+
+        self.option_manager = OptionManager(self.qfuncs, self.tfuncs)
+        # self.option_manager = SingleQOptionManager(self.qfunc, self.tfuncs)
+               
 
     def sample_option(self, s):
         '''assume already normalized state'''
@@ -69,10 +64,12 @@ class OptionCritic():
         '''assume normalized state'''
         #action = self.pols[w_index].get_action(s)
         #UNCOMMENT LINEs BELOW FOR SB3
+        self.pols[w_index].set_training_mode(False)
         if s.ndim == 1:
              s = s[None, :]
-        action, value, log_prob = self.pols[w_index].forward(s)
-        return action.detach()
+        with torch.no_grad():
+            action, value, log_prob = self.pols[w_index].forward(s)
+        return action
     
     def get_logprob_entropy(self, a, s, w_index):
         logprob, entropy = self.pols[w_index].get_logprob_entropy(a, s)
@@ -84,6 +81,7 @@ class OptionCritic():
         does a single epoch of updates to models using recent experience from buffer.
         returns the average losses.
         '''
+        self.pols[w_index].set_training_mode(True)
         n_batches = max(1, self.buffers[w_index].cur_ind // self.batch_size) # to ensure at least one pass
         # if self.buffers[w_index].cur_ind == 0 and self.buffers[w_index].is_full == 0:
         #     n_batches = 0
@@ -106,11 +104,12 @@ class OptionCritic():
             dones = torch.tensor(dones, dtype = torch.float32)
             
             # compute necessary quantities
-            #current_qws = self.qfuncs[w_index].get_value(states).squeeze()
-            one_hot_vector = self.option_manager.one_hots[w_index]
-            one_hot_expanded = one_hot_vector.unsqueeze(0).expand(states.shape[0], -1) 
-            augmented_batch = torch.cat((states, one_hot_expanded), dim=1)  # shape (batch_size, obs_space+onehot)
-            current_qws = self.qfunc.get_value(augmented_batch).squeeze()
+            current_qws = self.qfuncs[w_index].get_value(states).squeeze()
+
+            # one_hot_vector = self.option_manager.one_hots[w_index]
+            # one_hot_expanded = one_hot_vector.unsqueeze(0).expand(states.shape[0], -1) 
+            # augmented_batch = torch.cat((states, one_hot_expanded), dim=1)  # shape (batch_size, obs_space+onehot)
+            #current_qws = self.qfunc.get_value(states, w_index).squeeze()
             #print(augmented_batch.shape)
 
 
@@ -158,17 +157,19 @@ class OptionCritic():
 
             # update Q function using clipped loss 
             target = rewards + self.gamma * ((1-termprobs.detach()) * old_next_qws + termprobs.detach() * old_max_next_qws) * (1-dones)
-            q_clipped = old_qws + torch.clamp(current_qws - old_qws, -eps_clip, eps_clip)
-            loss_unclipped = (current_qws - target)**2
-            loss_clipped = (q_clipped - target)**2
-            q_loss = 0.5 * torch.max(loss_unclipped, loss_clipped).mean()
-
+            qloss = (current_qws - target)**2
+            #UNCOMMENT LINES BELOW FOR CLIPPED VALUE
+            # q_clipped = old_qws + torch.clamp(current_qws - old_qws, -eps_clip, eps_clip)
+            # qloss = (q_clipped - target)**2
+            q_loss = qloss.mean()
             avg_q_loss += q_loss.item()
             q_loss.backward()
-            nn.utils.clip_grad_norm_(self.qfunc.mlp.parameters(), 0.5)
-            self.qfunc_optim.step()
-            self.qfunc_optim.zero_grad()
-            # self.qfunc_optims[w_index].step()
-            # self.qfunc_optims[w_index].zero_grad()
+
+            # nn.utils.clip_grad_norm_(self.qfunc.mlp.parameters(), 0.5)
+            # self.qfunc_optim.step()
+            # self.qfunc_optim.zero_grad()
+            nn.utils.clip_grad_norm_(self.qfuncs[w_index].mlp.parameters(), 0.5)
+            self.qfunc_optims[w_index].step()
+            self.qfunc_optims[w_index].zero_grad()
         
         return avg_pol_loss/n_batches, avg_term_loss/n_batches, avg_q_loss/n_batches

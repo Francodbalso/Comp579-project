@@ -21,7 +21,6 @@ class Qw():
     '''
     The option value model Q_U(s, w) from the paper, except every instance
     of this class will correspond to a specific option w.
-    in_dim should be state_dim
     '''
     def __init__(self, s_dim, h_dim):
         self.mlp = MLP(s_dim, h_dim, 1)
@@ -29,6 +28,36 @@ class Qw():
     def get_value(self, s):
         # assume already normalized state
         return self.mlp(s)
+
+class SingleQw():
+    '''
+    The option value model Q_U(s, w) from the paper.
+    '''
+    def __init__(self, s_dim, emb_dim, h_dim, n_options):
+        self.n_options = n_options
+        if n_options == 1:
+            self.mlp = MLP(s_dim, h_dim, 1)
+        else:
+            self.embedding = nn.Embedding(n_options, emb_dim)
+            self.mlp = MLP(s_dim + emb_dim, h_dim, 1)
+    
+    def get_value(self, s, w):
+        if self.n_options == 1:
+            return self.mlp(s)
+        else:
+            w = torch.tensor(w)
+            if s.dim() != 1:
+                w = w.unsqueeze(0).expand(len(s))
+
+            emb = self.embedding(w)
+            inp = torch.cat([s, emb], dim=-1)
+            return self.mlp(inp)
+    
+    def parameters(self):
+        if self.n_options == 1:
+            return self.mlp.parameters()
+        else:
+            return list(self.embedding.parameters()) + list(self.mlp.parameters())
     
 
 class TerminationFunction():
@@ -245,13 +274,14 @@ class SingleQOptionManager():
         self.n_options = len(term_list)
         self.qw = Qw
         self.termination_funcs = term_list
-        self.one_hots = [torch.nn.functional.one_hot(torch.tensor(i), num_classes=self.n_options).to(torch.float32) for i in range(self.n_options)]
+        #self.one_hots = [torch.nn.functional.one_hot(torch.tensor(i), num_classes=self.n_options).to(torch.float32) for i in range(self.n_options)]
+        
     def sample_option(self, s, epsilon):
         '''
         Uses epsilon greedy method to choose an option. Returns the index of the sampled option.
         '''
         with torch.no_grad():
-            o_vals = torch.tensor([self.qw.get_value(torch.cat((s, o_hot))).squeeze() for o_hot in self.one_hots])
+            o_vals = torch.tensor([self.qw.get_value(s, w).squeeze() for w in range(self.n_options)])
         max_ind = torch.argmax(o_vals).item()
         if torch.rand(1).item() < 1 - epsilon:
             # be greedy
@@ -259,60 +289,19 @@ class SingleQOptionManager():
         else:
             # uniformly explore
             return np.random.choice(list(range(self.n_options)))
-
-    def get_quantities(self, r, s, option, epsilon, gamma, is_terminal):
-        '''
-        return V(s), Qu, Qw of current option, max Qw, and (differentiable) term prob in s .
-        Input 'option' is the index of the current option
-        Input is_terminal indicatees whether the state reaced is terminal or not
-        '''
-        with torch.no_grad():
-            o_vals = torch.tensor([self.qw.get_value(torch.cat((s, o_hot))).squeeze() for o_hot in self.one_hots])
-        
-        # get Qw of current option
-        qw = o_vals[option]
-
-        # get termination probability in s
-        term_prob = self.termination_funcs[option].get_term_prob(s).squeeze()
-        detached_prob = term_prob.detach()
-
-        # compute Qu
-        max_val = o_vals.max()
-        Qu = r + gamma*((1-detached_prob)*qw + detached_prob*max_val)*(1-is_terminal)
-
-        # compute V
-        max_ind = torch.argmax(o_vals).item()
-        probs = (epsilon/self.n_options) * torch.ones_like(o_vals)
-        probs[max_ind] += 1 - epsilon
-        V = (probs * o_vals).sum()
-
-        return V, Qu, qw, max_val, term_prob
-    def get_Values_batch(self, states, epsilon):
-        with torch.no_grad():
-            #print(states.shape)
-            #print("States:", states)
-            o_vals = [func.get_value(states).squeeze() for func in self.option_value_funcs]
-            o_vals = torch.stack(o_vals)
-        maxs = torch.max(o_vals, dim=0)
-
-        probs = (epsilon/self.n_options) * torch.ones_like(o_vals).squeeze(-1)
-        for batch_idx in range(o_vals.shape[1]):
-            probs[maxs.indices[batch_idx], batch_idx] = 1 - epsilon + (epsilon/self.n_options)
-        V = probs*o_vals.squeeze(-1)
-        #print(V)
-        V = V.sum(dim=0)
-        return V
+    
     
     def get_quantities_batch(self, rewards, states, option_index, epsilon, gamma, is_terminal):
 
         with torch.no_grad():
-            o_vals = []
-            #print(states.shape)
-            #print("States:", states)
-            for one_hot_vector in self.one_hots:
-                one_hot_expanded = one_hot_vector.unsqueeze(0).expand(states.shape[0], -1)  # shape [64, 2]
-                augmented_batch = torch.cat((states, one_hot_expanded), dim=1)  # shape [64, 5]
-                o_vals.append(self.qw.get_value(augmented_batch).squeeze())
+            # o_vals = []
+            # #print(states.shape)
+            # #print("States:", states)
+            # for one_hot_vector in self.one_hots:
+            #     one_hot_expanded = one_hot_vector.unsqueeze(0).expand(states.shape[0], -1)  # shape [64, 2]
+            #     augmented_batch = torch.cat((states, one_hot_expanded), dim=1)  # shape [64, 5]
+            #     o_vals.append(self.qw.get_value(augmented_batch).squeeze())
+            o_vals = [self.qw.get_value(states, w).squeeze(0) for w in range(self.n_options)]
             o_vals = torch.stack(o_vals)
             #print("out values shape:", o_vals.shape)
             
@@ -334,11 +323,11 @@ class SingleQOptionManager():
         Qu = rewards.squeeze() + gamma*((1-detached_prob)*qw + detached_prob*maxs.values)*(1-is_terminal).squeeze()
         # print("QU:", Qu)
 
-        probs = (epsilon/self.n_options) * torch.ones_like(o_vals).squeeze(-1)
+        probs = (epsilon/self.n_options) * torch.ones_like(o_vals)
         for batch_idx in range(o_vals.shape[1]):
             probs[maxs.indices[batch_idx], batch_idx] = 1 - epsilon + (epsilon/self.n_options)
 
-        V = probs*o_vals.squeeze(-1)
+        V = probs*o_vals
         #print(V)
         V = V.sum(dim=0)
         #print(V)
